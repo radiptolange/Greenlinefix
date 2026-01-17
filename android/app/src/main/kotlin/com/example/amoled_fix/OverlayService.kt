@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.view.Gravity
@@ -21,6 +22,7 @@ import android.widget.FrameLayout
 class OverlayService : Service() {
 
     private lateinit var windowManager: WindowManager
+    private val binder = LocalBinder()
 
     // Store reference to lines to manage them
     private val activeLines = mutableListOf<View>()
@@ -28,6 +30,10 @@ class OverlayService : Service() {
 
     // The Floating Control Pad
     private var controlView: View? = null
+
+    inner class LocalBinder : Binder() {
+        fun getService(): OverlayService = this@OverlayService
+    }
 
     companion object {
         const val CHANNEL_ID = "OverlayServiceChannel"
@@ -37,7 +43,9 @@ class OverlayService : Service() {
         const val ACTION_UPDATE_WIDTH = "UPDATE_WIDTH"
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    override fun onBind(intent: Intent?): IBinder {
+        return binder
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -73,6 +81,8 @@ class OverlayService : Service() {
                 if (controlView == null) showControls()
             }
             ACTION_STOP -> {
+                removeAllViews()
+                stopForeground(true)
                 stopSelf()
             }
             ACTION_ADD_LINE -> {
@@ -87,14 +97,36 @@ class OverlayService : Service() {
         return START_NOT_STICKY
     }
 
+    fun getLineConfigs(): List<Map<String, Int>> {
+        val configs = mutableListOf<Map<String, Int>>()
+        activeLines.forEach { view ->
+            val params = view.layoutParams as WindowManager.LayoutParams
+            configs.add(mapOf("x" to params.x, "width" to params.width))
+        }
+        return configs
+    }
+
+    fun setLineConfigs(configs: List<Map<String, Int>>) {
+        // Remove existing lines
+        activeLines.forEach { windowManager.removeView(it) }
+        activeLines.clear()
+
+        // Add new lines
+        configs.forEach { config ->
+            val x = config["x"] ?: 0
+            val width = config["width"] ?: 5
+            addNewLine(x, width)
+        }
+    }
+
     // 1. Create the Black Line (Non-touchable)
-    private fun addNewLine() {
+    private fun addNewLine(x: Int = 0, width: Int = activeLineWidth) {
         try {
             val lineView = View(this)
             lineView.setBackgroundColor(Color.BLACK) // Pure black for OLED
 
             val params = WindowManager.LayoutParams(
-                activeLineWidth,
+                width,
                 WindowManager.LayoutParams.MATCH_PARENT,
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -110,7 +142,13 @@ class OverlayService : Service() {
                 PixelFormat.TRANSLUCENT
             )
 
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+
             params.gravity = Gravity.CENTER // Start in center
+            params.x = x
+
             windowManager.addView(lineView, params)
             activeLines.add(lineView)
         } catch (e: Exception) {
@@ -188,12 +226,18 @@ class OverlayService : Service() {
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        // Clean up all views
-        if (controlView != null) windowManager.removeView(controlView)
+    private fun removeAllViews() {
+        if (controlView != null) {
+            windowManager.removeView(controlView)
+            controlView = null
+        }
         activeLines.forEach { windowManager.removeView(it) }
         activeLines.clear()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        removeAllViews()
     }
 
     private fun createNotificationChannel() {

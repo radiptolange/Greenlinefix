@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(const AmoledFixApp());
@@ -118,6 +120,118 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     // Debouncing could be added here for performance
     if (_isOverlayActive) {
       await platform.invokeMethod('updateWidth', {'width': val.toInt()});
+    }
+  }
+
+  Future<void> _saveProfile() async {
+    if (!_isOverlayActive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Activate overlay first")),
+      );
+      return;
+    }
+
+    try {
+      final result = await platform.invokeMethod('getLines');
+      final lines = List<Map<dynamic, dynamic>>.from(result);
+
+      final nameController = TextEditingController();
+      final name = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text("Save Profile"),
+          content: TextField(
+            controller: nameController,
+            decoration: const InputDecoration(hintText: "Profile Name"),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel"),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, nameController.text),
+              child: const Text("Save"),
+            ),
+          ],
+        ),
+      );
+
+      if (name != null && name.isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        final profilesJson = prefs.getString('profiles');
+        Map<String, dynamic> profiles = profilesJson != null ? jsonDecode(profilesJson) : {};
+
+        profiles[name] = lines;
+        await prefs.setString('profiles', jsonEncode(profiles));
+
+        if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Profile '$name' saved")),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint("Error saving profile: $e");
+       ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error saving profile: $e")),
+      );
+    }
+  }
+
+  Future<void> _loadProfile() async {
+    final prefs = await SharedPreferences.getInstance();
+    final profilesJson = prefs.getString('profiles');
+    if (profilesJson == null) {
+       ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No profiles saved")),
+      );
+      return;
+    }
+
+    Map<String, dynamic> profiles = jsonDecode(profilesJson);
+    if (profiles.isEmpty) {
+       ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No profiles saved")),
+      );
+      return;
+    }
+
+    final selectedProfile = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text("Select Profile"),
+        children: profiles.keys.map((name) {
+          return SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, name),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8.0),
+              child: Text(name),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+
+    if (selectedProfile != null) {
+      if (!_isOverlayActive) {
+         // Try to start it
+         await _toggleOverlay();
+         // Wait a bit? logic is in _toggleOverlay
+         if (!_isOverlayActive) return; // Failed to start
+      }
+
+      try {
+        List<dynamic> lines = profiles[selectedProfile];
+        await platform.invokeMethod('setLines', {'lines': lines});
+        if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Profile '$selectedProfile' loaded")),
+          );
+        }
+      } catch (e) {
+        debugPrint("Error loading profile: $e");
+      }
     }
   }
 
@@ -245,6 +359,31 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                   foregroundColor: Colors.white,
                 ),
               ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // 4. Profiles
+             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _isOverlayActive ? _saveProfile : null,
+                  icon: const Icon(Icons.save),
+                  label: const Text("Save Profile"),
+                   style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.tealAccent,
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _loadProfile,
+                  icon: const Icon(Icons.folder_open),
+                  label: const Text("Load Profile"),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.tealAccent,
+                  ),
+                ),
+              ],
             ),
 
             const SizedBox(height: 20),
