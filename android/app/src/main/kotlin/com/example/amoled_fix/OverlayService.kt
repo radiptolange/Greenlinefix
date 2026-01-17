@@ -196,16 +196,19 @@ class OverlayService : Service() {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                         WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                         WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
-                PixelFormat.TRANSLUCENT
+                PixelFormat.OPAQUE
             )
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
 
-            params.gravity = Gravity.CENTER
+            // Use TOP | CENTER_HORIZONTAL to ensure full height from top
+            params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             params.x = config.x
+            params.y = 0
 
             windowManager.addView(lineView, params)
             activeLines[id] = lineView

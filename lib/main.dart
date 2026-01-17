@@ -164,8 +164,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         setState(() {
           _isOverlayActive = true;
         });
-        // Restore active profile? Or just empty?
-        // Let's keep it empty or sync.
       }
     } on PlatformException catch (e) {
       debugPrint("Error: ${e.message}");
@@ -245,6 +243,20 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     }
 
     try {
+      final result = await platform.invokeMethod('getLines');
+      final Map<dynamic, dynamic> data = result;
+      final List<Map<String, dynamic>> linesToSave = [];
+
+      data.forEach((key, value) {
+          final map = Map<String, dynamic>.from(value);
+          linesToSave.add({
+              'id': key,
+              'x': map['x'],
+              'width': map['width'],
+              'visible': map['visible']
+          });
+      });
+
       final nameController = TextEditingController();
       final name = await showDialog<String>(
         context: context,
@@ -272,9 +284,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         final profilesJson = prefs.getString('profiles');
         Map<String, dynamic> profiles = profilesJson != null ? jsonDecode(profilesJson) : {};
 
-        final linesJson = _lines.map((l) => l.toJson()).toList();
-
-        profiles[name] = linesJson;
+        profiles[name] = linesToSave;
         await prefs.setString('profiles', jsonEncode(profiles));
 
         if (mounted) {
