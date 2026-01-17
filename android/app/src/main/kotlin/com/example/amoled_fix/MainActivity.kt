@@ -32,7 +32,6 @@ class MainActivity: FlutterActivity() {
     override fun onStart() {
         super.onStart()
         // Bind to OverlayService if it's running (or start and bind)
-        // Since we want to interact with it, we should bind.
         val intent = Intent(this, OverlayService::class.java)
         bindService(intent, connection, Context.BIND_AUTO_CREATE)
     }
@@ -63,43 +62,95 @@ class MainActivity: FlutterActivity() {
                     result.success("Stopped")
                 }
                 "addLine" -> {
-                    startServiceAction(OverlayService.ACTION_ADD_LINE)
-                    result.success("Line Added")
+                     if (isBound && overlayService != null) {
+                         val id = call.argument<String>("id")
+                         val x = call.argument<Int>("x") ?: 0
+                         val width = call.argument<Int>("width") ?: 5
+                         val visible = call.argument<Boolean>("visible") ?: true
+                         if (id != null) {
+                             overlayService?.addLine(id, x, width, visible)
+                             result.success(true)
+                         } else {
+                             result.error("INVALID_ARG", "Missing id", null)
+                         }
+                     } else {
+                         startServiceAction(OverlayService.ACTION_START)
+                         result.error("SERVICE_NOT_BOUND", "Service started, try again", null)
+                     }
+                }
+                "removeLine" -> {
+                    if (isBound && overlayService != null) {
+                        val id = call.argument<String>("id")
+                        if (id != null) {
+                            overlayService?.removeLine(id)
+                            result.success(true)
+                        } else {
+                             result.error("INVALID_ARG", "Missing id", null)
+                        }
+                    } else {
+                         result.error("SERVICE_NOT_BOUND", "Service not bound", null)
+                    }
+                }
+                "toggleLine" -> {
+                    if (isBound && overlayService != null) {
+                        val id = call.argument<String>("id")
+                        val visible = call.argument<Boolean>("visible")
+                        if (id != null && visible != null) {
+                            overlayService?.toggleLine(id, visible)
+                            result.success(true)
+                        } else {
+                            result.error("INVALID_ARG", "Missing id or visible", null)
+                        }
+                    } else {
+                         result.error("SERVICE_NOT_BOUND", "Service not bound", null)
+                    }
+                }
+                "selectLine" -> {
+                    if (isBound && overlayService != null) {
+                        val id = call.argument<String>("id")
+                        if (id != null) {
+                            overlayService?.selectLine(id)
+                            result.success(true)
+                        } else {
+                             result.error("INVALID_ARG", "Missing id", null)
+                        }
+                    } else {
+                         result.error("SERVICE_NOT_BOUND", "Service not bound", null)
+                    }
                 }
                 "updateWidth" -> {
-                    val width = call.argument<Int>("width") ?: 5
-                    val intent = Intent(this, OverlayService::class.java)
-                    intent.action = OverlayService.ACTION_UPDATE_WIDTH
-                    intent.putExtra("width", width)
-                    startService(intent)
-                    result.success(true)
+                     if (isBound && overlayService != null) {
+                         val id = call.argument<String>("id")
+                         val width = call.argument<Int>("width")
+                         if (id != null && width != null) {
+                             overlayService?.updateLineWidth(id, width)
+                             result.success(true)
+                         } else {
+                             result.error("INVALID_ARG", "Missing args", null)
+                         }
+                     } else {
+                          result.error("SERVICE_NOT_BOUND", "Service not bound", null)
+                     }
                 }
                 "getLines" -> {
                     if (isBound && overlayService != null) {
-                        result.success(overlayService?.getLineConfigs())
+                        result.success(overlayService?.getLineConfigsMap())
                     } else {
                         result.error("SERVICE_NOT_BOUND", "Service not bound", null)
                     }
                 }
                 "setLines" -> {
                     if (isBound && overlayService != null) {
-                        val lines = call.argument<List<Map<String, Int>>>("lines")
+                        val lines = call.argument<Map<String, Map<String, Any>>>("lines")
                         if (lines != null) {
-                            overlayService?.setLineConfigs(lines)
+                            overlayService?.setLineConfigsMap(lines)
                             result.success(true)
                         } else {
                             result.error("INVALID_ARG", "Lines argument missing", null)
                         }
                     } else {
-                         // Attempt to start and wait? For now just error.
-                         // But if we want to restore profiles on app launch, service might not be running.
-                         // If service is not running, we should start it.
                          if (Settings.canDrawOverlays(this)) {
                              startServiceAction(OverlayService.ACTION_START)
-                             // Give it a moment to bind?
-                             // Since binding is async, we can't immediately set lines.
-                             // Ideally we would queue this or retry.
-                             // For now, let's assume the user starts the overlay first.
                              result.error("SERVICE_NOT_READY", "Service not running or bound. Start overlay first.", null)
                          } else {
                              result.error("PERM_DENIED", "Overlay permission required", null)

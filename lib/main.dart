@@ -29,6 +29,36 @@ class AmoledFixApp extends StatelessWidget {
   }
 }
 
+class LineData {
+  String id;
+  int x;
+  int width;
+  bool visible;
+
+  LineData({
+    required this.id,
+    this.x = 0,
+    this.width = 5,
+    this.visible = true,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'x': x,
+    'width': width,
+    'visible': visible,
+  };
+
+  factory LineData.fromJson(Map<String, dynamic> json) {
+    return LineData(
+      id: json['id'] ?? '',
+      x: json['x'] ?? 0,
+      width: json['width'] ?? 5,
+      visible: json['visible'] ?? true,
+    );
+  }
+}
+
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({Key? key}) : super(key: key);
 
@@ -40,14 +70,17 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   static const platform = MethodChannel('com.example.amoled_fix/overlay');
 
   bool _isOverlayActive = false;
-  double _lineWidth = 5.0;
   bool _hasPermission = false;
+
+  List<LineData> _lines = [];
+  String? _selectedLineId;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _checkPermission();
+    _syncState();
   }
 
   @override
@@ -64,7 +97,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   }
 
   Future<void> _checkPermission() async {
-    // Check overlay permission via permission_handler
     final bool hasPerm = await Permission.systemAlertWindow.isGranted;
     setState(() {
       _hasPermission = hasPerm;
@@ -73,12 +105,43 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
 
   Future<void> _requestPermission() async {
     await Permission.systemAlertWindow.request();
-    // The user goes to settings. When they return, didChangeAppLifecycleState will trigger check.
+  }
+
+  Future<void> _syncState() async {
+    // Try to get lines from native if service is running
+    try {
+      final result = await platform.invokeMethod('getLines');
+      if (result != null) {
+        final Map<dynamic, dynamic> data = result;
+        final List<LineData> loadedLines = [];
+        data.forEach((key, value) {
+          final map = Map<String, dynamic>.from(value);
+          loadedLines.add(LineData(
+            id: key,
+            x: map['x'] ?? 0,
+            width: map['width'] ?? 5,
+            visible: map['visible'] ?? true
+          ));
+        });
+
+        setState(() {
+          _lines = loadedLines;
+          _isOverlayActive = true; // If we got lines, service is running
+          if (_lines.isNotEmpty && _selectedLineId == null) {
+             _selectedLineId = _lines.last.id;
+          }
+        });
+      }
+    } catch (e) {
+      // Service probably not running
+      setState(() {
+        _isOverlayActive = false;
+      });
+    }
   }
 
   Future<void> _toggleOverlay() async {
     if (!_hasPermission) {
-      // Double check in case it changed
       await _checkPermission();
       if (!_hasPermission) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -91,35 +154,85 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     try {
       if (_isOverlayActive) {
         await platform.invokeMethod('stopOverlay');
+        setState(() {
+          _isOverlayActive = false;
+          _lines.clear();
+          _selectedLineId = null;
+        });
       } else {
         await platform.invokeMethod('startOverlay');
+        setState(() {
+          _isOverlayActive = true;
+        });
+        // Restore active profile? Or just empty?
+        // Let's keep it empty or sync.
       }
-      setState(() {
-        _isOverlayActive = !_isOverlayActive;
-      });
     } on PlatformException catch (e) {
       debugPrint("Error: ${e.message}");
       if (e.code == "PERM_DENIED") {
-         _checkPermission(); // Sync state
-         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Permission denied by system.")),
-          );
+         _checkPermission();
       }
     }
   }
 
   Future<void> _addLine() async {
     if (!_isOverlayActive) return;
-    await platform.invokeMethod('addLine');
+
+    final id = DateTime.now().millisecondsSinceEpoch.toString();
+    final newLine = LineData(id: id, width: 5);
+
+    setState(() {
+      _lines.add(newLine);
+      _selectedLineId = id;
+    });
+
+    await platform.invokeMethod('addLine', {
+      'id': newLine.id,
+      'x': newLine.x,
+      'width': newLine.width,
+      'visible': newLine.visible
+    });
+  }
+
+  Future<void> _removeLine(String id) async {
+    setState(() {
+      _lines.removeWhere((l) => l.id == id);
+      if (_selectedLineId == id) {
+        _selectedLineId = _lines.isNotEmpty ? _lines.last.id : null;
+      }
+    });
+    await platform.invokeMethod('removeLine', {'id': id});
+  }
+
+  Future<void> _toggleLineVisibility(String id, bool visible) async {
+    final index = _lines.indexWhere((l) => l.id == id);
+    if (index != -1) {
+      setState(() {
+        _lines[index].visible = visible;
+      });
+      await platform.invokeMethod('toggleLine', {'id': id, 'visible': visible});
+    }
+  }
+
+  Future<void> _selectLine(String id) async {
+    setState(() {
+      _selectedLineId = id;
+    });
+    await platform.invokeMethod('selectLine', {'id': id});
   }
 
   Future<void> _updateWidth(double val) async {
-    setState(() {
-      _lineWidth = val;
-    });
-    // Debouncing could be added here for performance
-    if (_isOverlayActive) {
-      await platform.invokeMethod('updateWidth', {'width': val.toInt()});
+    if (_selectedLineId == null) return;
+
+    final index = _lines.indexWhere((l) => l.id == _selectedLineId);
+    if (index != -1) {
+       setState(() {
+         _lines[index].width = val.toInt();
+       });
+       await platform.invokeMethod('updateWidth', {
+         'id': _selectedLineId,
+         'width': val.toInt()
+       });
     }
   }
 
@@ -132,9 +245,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     }
 
     try {
-      final result = await platform.invokeMethod('getLines');
-      final lines = List<Map<dynamic, dynamic>>.from(result);
-
       final nameController = TextEditingController();
       final name = await showDialog<String>(
         context: context,
@@ -162,7 +272,9 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         final profilesJson = prefs.getString('profiles');
         Map<String, dynamic> profiles = profilesJson != null ? jsonDecode(profilesJson) : {};
 
-        profiles[name] = lines;
+        final linesJson = _lines.map((l) => l.toJson()).toList();
+
+        profiles[name] = linesJson;
         await prefs.setString('profiles', jsonEncode(profiles));
 
         if (mounted) {
@@ -215,15 +327,35 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
 
     if (selectedProfile != null) {
       if (!_isOverlayActive) {
-         // Try to start it
          await _toggleOverlay();
-         // Wait a bit? logic is in _toggleOverlay
-         if (!_isOverlayActive) return; // Failed to start
+         if (!_isOverlayActive) return;
       }
 
       try {
-        List<dynamic> lines = profiles[selectedProfile];
-        await platform.invokeMethod('setLines', {'lines': lines});
+        List<dynamic> linesRaw = profiles[selectedProfile];
+        // Convert to map for native
+        Map<String, Map<String, Any>> nativeMap = {};
+        List<LineData> newLines = [];
+
+        for (var item in linesRaw) {
+          final line = LineData.fromJson(item);
+          newLines.add(line);
+          nativeMap[line.id] = {
+            'x': line.x,
+            'width': line.width,
+            'visible': line.visible
+          };
+        }
+
+        await platform.invokeMethod('setLines', {'lines': nativeMap});
+
+        setState(() {
+          _lines = newLines;
+          if (_lines.isNotEmpty) {
+            _selectedLineId = _lines.last.id;
+          }
+        });
+
         if (mounted) {
            ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text("Profile '$selectedProfile' loaded")),
@@ -237,6 +369,8 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
 
   @override
   Widget build(BuildContext context) {
+    final selectedLine = _lines.firstWhere((l) => l.id == _selectedLineId, orElse: () => LineData(id: ''));
+
     return Scaffold(
       appBar: AppBar(
         title: const Text("AMOLED Patcher"),
@@ -248,7 +382,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 1. Permission Card
+            // Permission UI
             if (!_hasPermission)
               Container(
                 padding: const EdgeInsets.all(16),
@@ -258,17 +392,9 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                   border: Border.all(color: Colors.redAccent),
                 ),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      "Permission Missing",
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
+                    const Text("Permission Missing", style: TextStyle(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
-                    const Text(
-                      "To mask screen defects, this app needs to draw over other apps.",
-                    ),
-                    const SizedBox(height: 12),
                     ElevatedButton(
                       onPressed: _requestPermission,
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
@@ -278,82 +404,111 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                 ),
               ),
 
-            const SizedBox(height: 30),
+            const SizedBox(height: 20),
 
-            // 2. Main Controls
+            // Power Button
             Center(
-              child: Column(
-                children: [
-                  // Power Button
-                  GestureDetector(
-                    onTap: _toggleOverlay,
-                    child: Container(
-                      width: 100,
-                      height: 100,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _isOverlayActive ? Colors.tealAccent.withOpacity(0.2) : Colors.grey.withOpacity(0.1),
-                        border: Border.all(
-                          color: _isOverlayActive ? Colors.tealAccent : Colors.grey,
-                          width: 3,
-                        ),
-                        boxShadow: _isOverlayActive
-                            ? [BoxShadow(color: Colors.tealAccent.withOpacity(0.4), blurRadius: 20)]
-                            : [],
-                      ),
-                      child: Icon(
-                        Icons.power_settings_new,
-                        size: 40,
-                        color: _isOverlayActive ? Colors.tealAccent : Colors.grey,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    _isOverlayActive ? "Active" : "Inactive",
-                    style: TextStyle(
+              child: GestureDetector(
+                onTap: _toggleOverlay,
+                child: Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _isOverlayActive ? Colors.tealAccent.withOpacity(0.2) : Colors.grey.withOpacity(0.1),
+                    border: Border.all(
                       color: _isOverlayActive ? Colors.tealAccent : Colors.grey,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.5,
+                      width: 3,
                     ),
+                    boxShadow: _isOverlayActive
+                        ? [BoxShadow(color: Colors.tealAccent.withOpacity(0.4), blurRadius: 20)]
+                        : [],
                   ),
-                ],
+                  child: Icon(
+                    Icons.power_settings_new,
+                    size: 32,
+                    color: _isOverlayActive ? Colors.tealAccent : Colors.grey,
+                  ),
+                ),
               ),
             ),
 
-            const Spacer(),
+            const SizedBox(height: 20),
 
-            // 3. Line Configuration
-            Text("Line Settings", style: TextStyle(color: Colors.grey[400])),
-            const Divider(color: Colors.grey),
+            // Lines List
+            Expanded(
+              child: _lines.isEmpty
+                ? Center(child: Text("No active lines", style: TextStyle(color: Colors.grey[600])))
+                : ListView.builder(
+                    itemCount: _lines.length,
+                    itemBuilder: (context, index) {
+                      final line = _lines[index];
+                      final isSelected = line.id == _selectedLineId;
 
-            Row(
-              children: [
-                const Icon(Icons.line_weight, color: Colors.white),
-                const SizedBox(width: 12),
-                const Text("Thickness"),
-                Expanded(
-                  child: Slider(
-                    value: _lineWidth,
-                    min: 1,
-                    max: 50,
-                    divisions: 50,
-                    label: "${_lineWidth.toInt()}px",
-                    onChanged: _updateWidth,
+                      return Container(
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        decoration: BoxDecoration(
+                          color: isSelected ? Colors.tealAccent.withOpacity(0.1) : Colors.white10,
+                          border: isSelected ? Border.all(color: Colors.tealAccent) : null,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: ListTile(
+                          onTap: () => _selectLine(line.id),
+                          title: Text("Line ${index + 1}"),
+                          subtitle: Text("Width: ${line.width}px"),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Switch(
+                                value: line.visible,
+                                onChanged: (v) => _toggleLineVisibility(line.id, v),
+                                activeColor: Colors.tealAccent,
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete, color: Colors.redAccent),
+                                onPressed: () => _removeLine(line.id),
+                              )
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                ),
-              ],
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
 
-            SizedBox(
+            // Controls for Selected Line
+            if (_selectedLineId != null && _lines.any((l) => l.id == _selectedLineId))
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("Selected Line Width", style: TextStyle(color: Colors.grey[400])),
+                   Row(
+                    children: [
+                      const Icon(Icons.line_weight, color: Colors.white),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Slider(
+                          value: selectedLine.width.toDouble(),
+                          min: 1,
+                          max: 50,
+                          divisions: 50,
+                          label: "${selectedLine.width}px",
+                          onChanged: _updateWidth,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+
+             SizedBox(
               width: double.infinity,
-              height: 50,
               child: ElevatedButton.icon(
                 onPressed: _isOverlayActive ? _addLine : null,
                 icon: const Icon(Icons.add),
-                label: const Text("Add Vertical Line"),
+                label: const Text("Add New Line"),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white12,
                   foregroundColor: Colors.white,
@@ -363,7 +518,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
 
             const SizedBox(height: 20),
 
-            // 4. Profiles
+            // Profiles
              Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
@@ -384,13 +539,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                   ),
                 ),
               ],
-            ),
-
-            const SizedBox(height: 20),
-            const Text(
-              "Note: Use the floating on-screen buttons to position the line precisely.",
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-              textAlign: TextAlign.center,
             ),
           ],
         ),
