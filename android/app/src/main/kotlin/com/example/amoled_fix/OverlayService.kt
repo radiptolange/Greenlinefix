@@ -45,12 +45,26 @@ class OverlayService : Service() {
         createNotificationChannel()
 
         // Start Foreground to keep app alive
-        val notification = Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("AMOLED Fix Running")
-            .setContentText("Overlay is active")
-            .setSmallIcon(android.R.drawable.ic_menu_view)
-            .build()
-        startForeground(1, notification)
+        try {
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(this, CHANNEL_ID)
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(this)
+            }
+
+            val notification = builder
+                .setContentTitle("AMOLED Fix Running")
+                .setContentText("Overlay is active")
+                .setSmallIcon(android.R.drawable.ic_menu_view)
+                .build()
+
+            startForeground(1, notification)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            // If we can't start foreground, we can't run.
+            stopSelf()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -75,74 +89,82 @@ class OverlayService : Service() {
 
     // 1. Create the Black Line (Non-touchable)
     private fun addNewLine() {
-        val lineView = View(this)
-        lineView.setBackgroundColor(Color.BLACK) // Pure black for OLED
+        try {
+            val lineView = View(this)
+            lineView.setBackgroundColor(Color.BLACK) // Pure black for OLED
 
-        val params = WindowManager.LayoutParams(
-            activeLineWidth,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            else
-                WindowManager.LayoutParams.TYPE_PHONE,
-            // FLAG_NOT_FOCUSABLE: Lets keys go to app behind
-            // FLAG_NOT_TOUCHABLE: Lets touch go to app behind
-            // FLAG_LAYOUT_NO_LIMITS: Draws over status bar/nav bar
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
-            PixelFormat.TRANSLUCENT
-        )
+            val params = WindowManager.LayoutParams(
+                activeLineWidth,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                else
+                    WindowManager.LayoutParams.TYPE_PHONE,
+                // FLAG_NOT_FOCUSABLE: Lets keys go to app behind
+                // FLAG_NOT_TOUCHABLE: Lets touch go to app behind
+                // FLAG_LAYOUT_NO_LIMITS: Draws over status bar/nav bar
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                        WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
+                PixelFormat.TRANSLUCENT
+            )
 
-        params.gravity = Gravity.CENTER // Start in center
-        windowManager.addView(lineView, params)
-        activeLines.add(lineView)
+            params.gravity = Gravity.CENTER // Start in center
+            windowManager.addView(lineView, params)
+            activeLines.add(lineView)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     // 2. Create Floating Controls (Touchable)
     private fun showControls() {
-        val layout = LinearLayout(this)
-        layout.orientation = LinearLayout.HORIZONTAL
-        layout.setBackgroundColor(Color.parseColor("#80000000")) // Semi-transparent
-        layout.setPadding(20, 20, 20, 20)
+        try {
+            val layout = LinearLayout(this)
+            layout.orientation = LinearLayout.HORIZONTAL
+            layout.setBackgroundColor(Color.parseColor("#80000000")) // Semi-transparent
+            layout.setPadding(20, 20, 20, 20)
 
-        // Button: Move Left
-        val btnLeft = Button(this)
-        btnLeft.text = "<"
-        btnLeft.setOnClickListener { moveActiveLine(-5) }
+            // Button: Move Left
+            val btnLeft = Button(this)
+            btnLeft.text = "<"
+            btnLeft.setOnClickListener { moveActiveLine(-5) }
 
-        // Button: Move Right
-        val btnRight = Button(this)
-        btnRight.text = ">"
-        btnRight.setOnClickListener { moveActiveLine(5) }
+            // Button: Move Right
+            val btnRight = Button(this)
+            btnRight.text = ">"
+            btnRight.setOnClickListener { moveActiveLine(5) }
 
-        // Button: Close
-        val btnClose = Button(this)
-        btnClose.text = "X"
-        btnClose.setOnClickListener { stopSelf() }
+            // Button: Close
+            val btnClose = Button(this)
+            btnClose.text = "X"
+            btnClose.setOnClickListener { stopSelf() }
 
-        layout.addView(btnLeft)
-        layout.addView(btnRight)
-        layout.addView(btnClose)
+            layout.addView(btnLeft)
+            layout.addView(btnRight)
+            layout.addView(btnClose)
 
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            else
-                WindowManager.LayoutParams.TYPE_PHONE,
-            // FLAG_NOT_FOCUSABLE ensures keyboard works in other apps
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        )
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                else
+                    WindowManager.LayoutParams.TYPE_PHONE,
+                // FLAG_NOT_FOCUSABLE ensures keyboard works in other apps
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT
+            )
 
-        params.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-        params.y = 100 // Offset from bottom
+            params.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            params.y = 100 // Offset from bottom
 
-        windowManager.addView(layout, params)
-        controlView = layout
+            windowManager.addView(layout, params)
+            controlView = layout
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     // Logic to move the *last added* line (simplified for UX)
