@@ -334,7 +334,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
       try {
         List<dynamic> linesRaw = profiles[selectedProfile];
         // Convert to map for native
-        Map<String, Map<String, Any>> nativeMap = {};
+        Map<String, Map<String, dynamic>> nativeMap = {};
         List<LineData> newLines = [];
 
         for (var item in linesRaw) {
