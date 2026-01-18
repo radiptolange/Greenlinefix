@@ -1,11 +1,6 @@
 package com.example.amoled_fix
 
-import android.content.ComponentName
-import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
-import android.os.Build
-import android.os.IBinder
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -13,183 +8,155 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.example.amoled_fix/overlay"
-    private var overlayService: OverlayService? = null
-    private var isBound = false
-
-    private val connection = object : ServiceConnection {
-        override fun onServiceConnected(className: ComponentName, service: IBinder) {
-            val binder = service as OverlayService.LocalBinder
-            overlayService = binder.getService()
-            isBound = true
-        }
-
-        override fun onServiceDisconnected(arg0: ComponentName) {
-            isBound = false
-            overlayService = null
-        }
-    }
-
-    override fun onStart() {
-        super.onStart()
-        // Bind to OverlayService if it's running (or start and bind)
-        val intent = Intent(this, OverlayService::class.java)
-        bindService(intent, connection, Context.BIND_AUTO_CREATE)
-    }
-
-    override fun onStop() {
-        super.onStop()
-        if (isBound) {
-            unbindService(connection)
-            isBound = false
-        }
-    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
+                "checkPermission" -> {
+                    result.success(OverlayService.instance != null)
+                }
+                "requestPermission" -> {
+                    val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                    startActivity(intent)
+                    result.success(true)
+                }
                 "startOverlay" -> {
-                    if (Settings.canDrawOverlays(this)) {
-                        startServiceAction(OverlayService.ACTION_START)
+                    if (OverlayService.instance != null) {
                         result.success("Started")
                     } else {
-                        result.error("PERM_DENIED", "Overlay permission required", null)
+                        result.error("PERM_DENIED", "Enable Accessibility Service", null)
                     }
                 }
                 "stopOverlay" -> {
-                    startServiceAction(OverlayService.ACTION_STOP)
+                    // Cannot stop A11y service programmatically easily.
+                    // We assume it's "stopped" if user clears lines or disables it.
+                    // But for the UI toggle, we just say "Stopped".
                     result.success("Stopped")
                 }
                 "addLine" -> {
-                     if (isBound && overlayService != null) {
+                     val service = OverlayService.instance
+                     if (service != null) {
                          val id = call.argument<String>("id")
                          val x = call.argument<Int>("x") ?: 0
                          val width = call.argument<Int>("width") ?: 5
                          val visible = call.argument<Boolean>("visible") ?: true
                          if (id != null) {
-                             overlayService?.addLine(id, x, width, visible)
+                             service.addLine(id, x, width, visible)
                              result.success(true)
                          } else {
                              result.error("INVALID_ARG", "Missing id", null)
                          }
                      } else {
-                         startServiceAction(OverlayService.ACTION_START)
-                         result.error("SERVICE_NOT_BOUND", "Service started, try again", null)
+                         result.error("SERVICE_NOT_RUNNING", "Enable Accessibility Service", null)
                      }
                 }
                 "removeLine" -> {
-                    if (isBound && overlayService != null) {
+                    val service = OverlayService.instance
+                    if (service != null) {
                         val id = call.argument<String>("id")
                         if (id != null) {
-                            overlayService?.removeLine(id)
+                            service.removeLine(id)
                             result.success(true)
                         } else {
                              result.error("INVALID_ARG", "Missing id", null)
                         }
                     } else {
-                         result.error("SERVICE_NOT_BOUND", "Service not bound", null)
+                         result.error("SERVICE_NOT_RUNNING", "Enable Accessibility Service", null)
                     }
                 }
                 "toggleLine" -> {
-                    if (isBound && overlayService != null) {
+                    val service = OverlayService.instance
+                    if (service != null) {
                         val id = call.argument<String>("id")
                         val visible = call.argument<Boolean>("visible")
                         if (id != null && visible != null) {
-                            overlayService?.toggleLine(id, visible)
+                            service.toggleLine(id, visible)
                             result.success(true)
                         } else {
                             result.error("INVALID_ARG", "Missing id or visible", null)
                         }
                     } else {
-                         result.error("SERVICE_NOT_BOUND", "Service not bound", null)
+                         result.error("SERVICE_NOT_RUNNING", "Enable Accessibility Service", null)
                     }
                 }
                 "selectLine" -> {
-                    if (isBound && overlayService != null) {
+                    val service = OverlayService.instance
+                    if (service != null) {
                         val id = call.argument<String>("id")
                         if (id != null) {
-                            overlayService?.selectLine(id)
+                            service.selectLine(id)
                             result.success(true)
                         } else {
                              result.error("INVALID_ARG", "Missing id", null)
                         }
                     } else {
-                         result.error("SERVICE_NOT_BOUND", "Service not bound", null)
+                         result.error("SERVICE_NOT_RUNNING", "Enable Accessibility Service", null)
                     }
                 }
                 "updateWidth" -> {
-                     if (isBound && overlayService != null) {
+                     val service = OverlayService.instance
+                     if (service != null) {
                          val id = call.argument<String>("id")
                          val width = call.argument<Int>("width")
                          if (id != null && width != null) {
-                             overlayService?.updateLineWidth(id, width)
+                             service.updateLineWidth(id, width)
                              result.success(true)
                          } else {
                              result.error("INVALID_ARG", "Missing args", null)
                          }
                      } else {
-                          result.error("SERVICE_NOT_BOUND", "Service not bound", null)
+                          result.error("SERVICE_NOT_RUNNING", "Enable Accessibility Service", null)
                      }
                 }
                 "getLines" -> {
-                    if (isBound && overlayService != null) {
-                        result.success(overlayService?.getLineConfigsMap())
+                    val service = OverlayService.instance
+                    if (service != null) {
+                        result.success(service.getLineConfigsMap())
                     } else {
-                        result.error("SERVICE_NOT_BOUND", "Service not bound", null)
+                        result.error("SERVICE_NOT_RUNNING", "Enable Accessibility Service", null)
                     }
                 }
                 "setLines" -> {
-                    if (isBound && overlayService != null) {
+                    val service = OverlayService.instance
+                    if (service != null) {
                         val lines = call.argument<Map<String, Map<String, Any>>>("lines")
                         if (lines != null) {
-                            overlayService?.setLineConfigsMap(lines)
+                            service.setLineConfigsMap(lines)
                             result.success(true)
                         } else {
                             result.error("INVALID_ARG", "Lines argument missing", null)
                         }
                     } else {
-                         if (Settings.canDrawOverlays(this)) {
-                             startServiceAction(OverlayService.ACTION_START)
-                             result.error("SERVICE_NOT_READY", "Service not running or bound. Start overlay first.", null)
-                         } else {
-                             result.error("PERM_DENIED", "Overlay permission required", null)
-                         }
+                         result.error("SERVICE_NOT_RUNNING", "Enable Accessibility Service", null)
                     }
                 }
                 "moveLine" -> {
-                     if (isBound && overlayService != null) {
+                     val service = OverlayService.instance
+                     if (service != null) {
                          val delta = call.argument<Int>("delta")
                          if (delta != null) {
-                             overlayService?.moveSelectedLine(delta)
+                             service.moveSelectedLine(delta)
                              result.success(true)
                          } else {
                              result.error("INVALID_ARG", "Missing delta", null)
                          }
                      } else {
-                          result.error("SERVICE_NOT_BOUND", "Service not bound", null)
+                          result.error("SERVICE_NOT_RUNNING", "Enable Accessibility Service", null)
                      }
                 }
                 "resetLine" -> {
-                     if (isBound && overlayService != null) {
-                         overlayService?.resetSelectedLine()
+                     val service = OverlayService.instance
+                     if (service != null) {
+                         service.resetSelectedLine()
                          result.success(true)
                      } else {
-                          result.error("SERVICE_NOT_BOUND", "Service not bound", null)
+                          result.error("SERVICE_NOT_RUNNING", "Enable Accessibility Service", null)
                      }
                 }
                 else -> result.notImplemented()
             }
-        }
-    }
-
-    private fun startServiceAction(action: String) {
-        val intent = Intent(this, OverlayService::class.java)
-        intent.action = action
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
         }
     }
 }

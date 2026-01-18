@@ -93,18 +93,19 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _checkPermission();
+      _syncState(); // Also sync state on resume
     }
   }
 
   Future<void> _checkPermission() async {
-    final bool hasPerm = await Permission.systemAlertWindow.isGranted;
+    final bool hasPerm = await platform.invokeMethod('checkPermission');
     setState(() {
       _hasPermission = hasPerm;
     });
   }
 
   Future<void> _requestPermission() async {
-    await Permission.systemAlertWindow.request();
+    await platform.invokeMethod('requestPermission');
   }
 
   Future<void> _syncState() async {
@@ -133,10 +134,14 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         });
       }
     } catch (e) {
-      // Service probably not running
-      setState(() {
-        _isOverlayActive = false;
-      });
+      // Service probably not running or failed to call
+      // Don't set _isOverlayActive to false here blindly, as checkPermission handles service check indirectly?
+      // Actually, if getLines fails, service instance is likely null.
+      if (e is PlatformException && e.code == "SERVICE_NOT_RUNNING") {
+          setState(() {
+            _isOverlayActive = false;
+          });
+      }
     }
   }
 
@@ -145,7 +150,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
       await _checkPermission();
       if (!_hasPermission) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Permission required first!")),
+            const SnackBar(content: Text("Accessibility Service required!")),
           );
           return;
       }
@@ -164,11 +169,17 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         setState(() {
           _isOverlayActive = true;
         });
+        _syncState();
       }
     } on PlatformException catch (e) {
       debugPrint("Error: ${e.message}");
-      if (e.code == "PERM_DENIED") {
+      if (e.code == "PERM_DENIED" || e.code == "SERVICE_NOT_RUNNING") {
          _checkPermission();
+         if (!_hasPermission) {
+             ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Enable Accessibility Service in Settings")),
+             );
+         }
       }
     }
   }
@@ -360,6 +371,11 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
 
     if (selectedProfile != null) {
       if (!_isOverlayActive) {
+         // Try to start?
+         // With A11y, we can't start. User must have started it.
+         ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Ensure Accessibility Service is enabled")),
+         );
          await _toggleOverlay();
          if (!_isOverlayActive) return;
       }
@@ -426,12 +442,17 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                 ),
                 child: Column(
                   children: [
-                    const Text("Permission Missing", style: TextStyle(fontWeight: FontWeight.bold)),
+                    const Text("Service Required", style: TextStyle(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
+                    const Text(
+                      "Please enable the 'AMOLED Fix Overlay Service' in Accessibility Settings to allow drawing over all apps and lock screen.",
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
                     ElevatedButton(
                       onPressed: _requestPermission,
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-                      child: const Text("Grant Permission"),
+                      child: const Text("Open Settings"),
                     )
                   ],
                 ),

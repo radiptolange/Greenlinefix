@@ -1,23 +1,18 @@
 package com.example.amoled_fix
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.Service
+import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
-import android.os.Binder
 import android.os.Build
-import android.os.IBinder
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import android.view.accessibility.AccessibilityEvent
 
-class OverlayService : Service() {
+class OverlayService : AccessibilityService() {
 
     private lateinit var windowManager: WindowManager
-    private val binder = LocalBinder()
 
     // Data class for Line Configuration
     data class LineConfig(
@@ -33,61 +28,36 @@ class OverlayService : Service() {
 
     private var selectedLineId: String? = null
 
-    inner class LocalBinder : Binder() {
-        fun getService(): OverlayService = this@OverlayService
-    }
-
     companion object {
-        const val CHANNEL_ID = "OverlayServiceChannel"
-        const val ACTION_START = "START"
-        const val ACTION_STOP = "STOP"
+        var instance: OverlayService? = null
     }
 
-    override fun onBind(intent: Intent?): IBinder {
-        return binder
-    }
-
-    override fun onCreate() {
-        super.onCreate()
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        instance = this
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        createNotificationChannel()
-
-        try {
-            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                Notification.Builder(this, CHANNEL_ID)
-            } else {
-                @Suppress("DEPRECATION")
-                Notification.Builder(this)
-            }
-
-            val notification = builder
-                .setContentTitle("AMOLED Fix Running")
-                .setContentText("Overlay is active")
-                .setSmallIcon(android.R.drawable.ic_menu_view)
-                .build()
-
-            startForeground(1, notification)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            stopSelf()
-        }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_START -> {
-                // Service started
-            }
-            ACTION_STOP -> {
-                removeAllViews()
-                stopForeground(true)
-                stopSelf()
-            }
-        }
-        return START_NOT_STICKY
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // Not used
     }
 
-    // --- Public API for Binder ---
+    override fun onInterrupt() {
+        // Not used
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        instance = null
+        return super.onUnbind(intent)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        instance = null
+        removeAllViews()
+    }
+
+    // --- Public API ---
 
     fun getLineConfigsMap(): Map<String, Map<String, Any>> {
         val result = mutableMapOf<String, Map<String, Any>>()
@@ -220,10 +190,7 @@ class OverlayService : Service() {
             val params = WindowManager.LayoutParams(
                 config.width,
                 screenHeight,
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                else
-                    WindowManager.LayoutParams.TYPE_PHONE,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, // Use Accessibility Overlay
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                         WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
@@ -263,22 +230,5 @@ class OverlayService : Service() {
 
     private fun removeAllViews() {
         removeAllLines()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        removeAllViews()
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Overlay Service",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
-        }
     }
 }
