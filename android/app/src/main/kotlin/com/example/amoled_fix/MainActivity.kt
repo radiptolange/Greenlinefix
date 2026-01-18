@@ -30,9 +30,7 @@ class MainActivity: FlutterActivity() {
                     }
                 }
                 "stopOverlay" -> {
-                    // Cannot stop A11y service programmatically easily.
-                    // We assume it's "stopped" if user clears lines or disables it.
-                    // But for the UI toggle, we just say "Stopped".
+                    OverlayService.instance?.removeAllLines()
                     result.success("Stopped")
                 }
                 "addLine" -> {
