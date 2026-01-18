@@ -13,9 +13,6 @@ import android.os.IBinder
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
-import android.widget.Button
-import android.widget.LinearLayout
-import java.util.UUID
 
 class OverlayService : Service() {
 
@@ -35,9 +32,6 @@ class OverlayService : Service() {
     private val lineConfigs = mutableMapOf<String, LineConfig>()
 
     private var selectedLineId: String? = null
-
-    // The Floating Control Pad
-    private var controlView: View? = null
 
     inner class LocalBinder : Binder() {
         fun getService(): OverlayService = this@OverlayService
@@ -82,7 +76,7 @@ class OverlayService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
-                if (controlView == null) showControls()
+                // Service started
             }
             ACTION_STOP -> {
                 removeAllViews()
@@ -179,6 +173,28 @@ class OverlayService : Service() {
          }
     }
 
+    fun moveSelectedLine(deltaX: Int) {
+        val id = selectedLineId ?: return
+        val view = activeLines[id] ?: return
+        val config = lineConfigs[id] ?: return
+
+        val params = view.layoutParams as WindowManager.LayoutParams
+        config.x += deltaX
+        params.x = config.x
+        windowManager.updateViewLayout(view, params)
+    }
+
+    fun resetSelectedLine() {
+        val id = selectedLineId ?: return
+        val view = activeLines[id] ?: return
+        val config = lineConfigs[id] ?: return
+
+        config.x = 0
+        val params = view.layoutParams as WindowManager.LayoutParams
+        params.x = 0
+        windowManager.updateViewLayout(view, params)
+    }
+
     // --- Private ---
 
     private fun getScreenHeight(): Int {
@@ -214,7 +230,7 @@ class OverlayService : Service() {
                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                         WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
                         WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS,
-                PixelFormat.RGBA_8888
+                PixelFormat.OPAQUE // Opaque for true black
             )
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -238,78 +254,6 @@ class OverlayService : Service() {
         }
     }
 
-    private fun showControls() {
-        try {
-            val layout = LinearLayout(this)
-            layout.orientation = LinearLayout.HORIZONTAL
-            layout.setBackgroundColor(Color.parseColor("#80000000"))
-            layout.setPadding(20, 20, 20, 20)
-
-            val btnLeft = Button(this)
-            btnLeft.text = "<"
-            btnLeft.setOnClickListener { moveSelectedLine(-5) }
-
-            // Center Button (Reset to 0)
-            val btnCenter = Button(this)
-            btnCenter.text = "O"
-            btnCenter.setOnClickListener { resetSelectedLine() }
-
-            val btnRight = Button(this)
-            btnRight.text = ">"
-            btnRight.setOnClickListener { moveSelectedLine(5) }
-
-            val btnClose = Button(this)
-            btnClose.text = "X"
-            btnClose.setOnClickListener { stopSelf() }
-
-            layout.addView(btnLeft)
-            layout.addView(btnCenter)
-            layout.addView(btnRight)
-            layout.addView(btnClose)
-
-            val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                else
-                    WindowManager.LayoutParams.TYPE_PHONE,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                PixelFormat.TRANSLUCENT
-            )
-
-            params.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            params.y = 100
-
-            windowManager.addView(layout, params)
-            controlView = layout
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun moveSelectedLine(deltaX: Int) {
-        val id = selectedLineId ?: return
-        val view = activeLines[id] ?: return
-        val config = lineConfigs[id] ?: return
-
-        val params = view.layoutParams as WindowManager.LayoutParams
-        config.x += deltaX
-        params.x = config.x
-        windowManager.updateViewLayout(view, params)
-    }
-
-    private fun resetSelectedLine() {
-        val id = selectedLineId ?: return
-        val view = activeLines[id] ?: return
-        val config = lineConfigs[id] ?: return
-
-        config.x = 0
-        val params = view.layoutParams as WindowManager.LayoutParams
-        params.x = 0
-        windowManager.updateViewLayout(view, params)
-    }
-
     private fun removeAllLines() {
         activeLines.values.forEach { windowManager.removeView(it) }
         activeLines.clear()
@@ -318,10 +262,6 @@ class OverlayService : Service() {
     }
 
     private fun removeAllViews() {
-        if (controlView != null) {
-            windowManager.removeView(controlView)
-            controlView = null
-        }
         removeAllLines()
     }
 

@@ -234,6 +234,29 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     }
   }
 
+  Future<void> _moveLine(int delta) async {
+    if (_selectedLineId == null) return;
+    await platform.invokeMethod('moveLine', {'delta': delta});
+
+    final index = _lines.indexWhere((l) => l.id == _selectedLineId);
+    if (index != -1) {
+       setState(() {
+         _lines[index].x += delta;
+       });
+    }
+  }
+
+  Future<void> _resetLine() async {
+    if (_selectedLineId == null) return;
+    await platform.invokeMethod('resetLine');
+    final index = _lines.indexWhere((l) => l.id == _selectedLineId);
+    if (index != -1) {
+       setState(() {
+         _lines[index].x = 0;
+       });
+    }
+  }
+
   Future<void> _saveProfile() async {
     if (!_isOverlayActive) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -510,6 +533,21 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                       ),
                     ],
                   ),
+
+                  // Position Controls
+                  const SizedBox(height: 10),
+                  Text("Position", style: TextStyle(color: Colors.grey[400])),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      ElevatedButton(onPressed: () => _moveLine(-5), child: const Text("<")),
+                      const SizedBox(width: 20),
+                      ElevatedButton(onPressed: _resetLine, child: const Text("Center")),
+                      const SizedBox(width: 20),
+                      ElevatedButton(onPressed: () => _moveLine(5), child: const Text(">")),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
                 ],
               ),
 

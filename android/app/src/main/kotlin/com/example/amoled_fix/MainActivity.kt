@@ -157,6 +157,27 @@ class MainActivity: FlutterActivity() {
                          }
                     }
                 }
+                "moveLine" -> {
+                     if (isBound && overlayService != null) {
+                         val delta = call.argument<Int>("delta")
+                         if (delta != null) {
+                             overlayService?.moveSelectedLine(delta)
+                             result.success(true)
+                         } else {
+                             result.error("INVALID_ARG", "Missing delta", null)
+                         }
+                     } else {
+                          result.error("SERVICE_NOT_BOUND", "Service not bound", null)
+                     }
+                }
+                "resetLine" -> {
+                     if (isBound && overlayService != null) {
+                         overlayService?.resetSelectedLine()
+                         result.success(true)
+                     } else {
+                          result.error("SERVICE_NOT_BOUND", "Service not bound", null)
+                     }
+                }
                 else -> result.notImplemented()
             }
         }
