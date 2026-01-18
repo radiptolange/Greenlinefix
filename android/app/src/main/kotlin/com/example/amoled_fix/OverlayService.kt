@@ -181,14 +181,29 @@ class OverlayService : Service() {
 
     // --- Private ---
 
+    private fun getScreenHeight(): Int {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val metrics = windowManager.maximumWindowMetrics
+            metrics.bounds.height()
+        } else {
+            val display = windowManager.defaultDisplay
+            val metrics = android.util.DisplayMetrics()
+            display.getRealMetrics(metrics)
+            metrics.heightPixels
+        }
+    }
+
     private fun createLineView(id: String, config: LineConfig) {
         try {
             val lineView = View(this)
             lineView.setBackgroundColor(Color.BLACK)
 
+            // Calculate real screen height to ensure full coverage including nav bar/status bar
+            val screenHeight = getScreenHeight() + 200 // Extra buffer
+
             val params = WindowManager.LayoutParams(
                 config.width,
-                WindowManager.LayoutParams.MATCH_PARENT,
+                screenHeight,
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 else
@@ -197,18 +212,24 @@ class OverlayService : Service() {
                         WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                        WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
-                PixelFormat.OPAQUE
+                        WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                        WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS,
+                PixelFormat.RGBA_8888
             )
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
 
+            // Ensure absolute opacity
+            params.alpha = 1.0f
+            params.dimAmount = 0.0f
+
             // Use TOP | CENTER_HORIZONTAL to ensure full height from top
             params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             params.x = config.x
-            params.y = 0
+            // Offset negative y to ensure we cover top edge even if there are margins
+            params.y = -100
 
             windowManager.addView(lineView, params)
             activeLines[id] = lineView
