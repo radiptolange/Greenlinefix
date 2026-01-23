@@ -17,7 +17,7 @@ class AmoledFixApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'AMOLED Fix',
       theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF121212),
+        scaffoldBackgroundColor: const Color(0xFF000000),
         primaryColor: Colors.tealAccent,
         sliderTheme: const SliderThemeData(
           activeTrackColor: Colors.tealAccent,
