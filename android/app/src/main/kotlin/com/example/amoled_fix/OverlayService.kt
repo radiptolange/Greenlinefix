@@ -2,6 +2,7 @@ package com.example.amoled_fix
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
@@ -14,23 +15,23 @@ class OverlayService : AccessibilityService() {
 
     private lateinit var windowManager: WindowManager
 
-    // Data class for Line Configuration
+    companion object {
+        const val ACTION_START = "com.example.amoled_fix.ACTION_START"
+
+        @Volatile
+        var instance: OverlayService? = null
+            private set
+    }
+
     data class LineConfig(
         var x: Int = 0,
         var width: Int = 5,
         var visible: Boolean = true
     )
 
-    // Map ID -> View
     private val activeLines = mutableMapOf<String, View>()
-    // Map ID -> Config
     private val lineConfigs = mutableMapOf<String, LineConfig>()
-
     private var selectedLineId: String? = null
-
-    companion object {
-        var instance: OverlayService? = null
-    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -39,13 +40,8 @@ class OverlayService : AccessibilityService() {
         restoreState()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Not used
-    }
-
-    override fun onInterrupt() {
-        // Not used
-    }
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) { }
+    override fun onInterrupt() { }
 
     override fun onUnbind(intent: Intent?): Boolean {
         instance = null
@@ -58,18 +54,17 @@ class OverlayService : AccessibilityService() {
         removeAllViews()
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        refreshAllLineLayouts()
+    }
+
     // --- Public API ---
 
     fun getLineConfigsMap(): Map<String, Map<String, Any>> {
-        val result = mutableMapOf<String, Map<String, Any>>()
-        lineConfigs.forEach { (id, config) ->
-            result[id] = mapOf(
-                "x" to config.x,
-                "width" to config.width,
-                "visible" to config.visible
-            )
+        return lineConfigs.mapValues { (_, config) ->
+            mapOf("x" to config.x, "width" to config.width, "visible" to config.visible)
         }
-        return result
     }
 
     fun setLineConfigsMap(configs: Map<String, Map<String, Any>>) {
@@ -80,10 +75,7 @@ class OverlayService : AccessibilityService() {
             val visible = (data["visible"] as? Boolean) ?: true
             addLineInternal(id, x, width, visible)
         }
-        // Select last one by default if any
-        if (activeLines.isNotEmpty()) {
-            selectedLineId = activeLines.keys.last()
-        }
+        if (activeLines.isNotEmpty()) selectedLineId = activeLines.keys.last()
         saveState()
     }
 
@@ -94,26 +86,17 @@ class OverlayService : AccessibilityService() {
 
     private fun addLineInternal(id: String, x: Int, width: Int, visible: Boolean) {
         if (lineConfigs.containsKey(id)) return
-
         val config = LineConfig(x, width, visible)
         lineConfigs[id] = config
-
-        if (visible) {
-            createLineView(id, config)
-        }
         selectedLineId = id
+        if (visible) createLineView(id, config)
     }
 
     fun removeLine(id: String) {
-        val view = activeLines[id]
-        if (view != null) {
-            windowManager.removeView(view)
-            activeLines.remove(id)
-        }
+        activeLines[id]?.let { windowManager.removeView(it) }
+        activeLines.remove(id)
         lineConfigs.remove(id)
-        if (selectedLineId == id) {
-            selectedLineId = activeLines.keys.firstOrNull()
-        }
+        if (selectedLineId == id) selectedLineId = activeLines.keys.firstOrNull()
         saveState()
     }
 
@@ -131,16 +114,13 @@ class OverlayService : AccessibilityService() {
 
     fun toggleLine(id: String, visible: Boolean) {
         val config = lineConfigs[id] ?: return
+        if (config.visible == visible) return
         config.visible = visible
-
         if (visible) {
-            if (!activeLines.containsKey(id)) {
-                createLineView(id, config)
-            }
+            if (!activeLines.containsKey(id)) createLineView(id, config)
         } else {
-            val view = activeLines[id]
-            if (view != null) {
-                windowManager.removeView(view)
+            activeLines[id]?.let {
+                windowManager.removeView(it)
                 activeLines.remove(id)
             }
         }
@@ -148,37 +128,33 @@ class OverlayService : AccessibilityService() {
     }
 
     fun selectLine(id: String) {
-        if (lineConfigs.containsKey(id)) {
-            selectedLineId = id
-        }
-        // Selection is transient, maybe don't save?
-        // But user might expect it. Let's not save selection to avoid complex restore logic for now.
+        if (lineConfigs.containsKey(id)) selectedLineId = id
     }
 
     fun updateLineWidth(id: String, width: Int) {
-         val config = lineConfigs[id] ?: return
-         config.width = width
-         val view = activeLines[id]
-         if (view != null) {
-             val params = view.layoutParams as WindowManager.LayoutParams
-             params.width = width
-             windowManager.updateViewLayout(view, params)
-         }
-         saveState()
+        val config = lineConfigs[id] ?: return
+        val view = activeLines[id] ?: return
+        if (config.width != width) {
+            config.width = width
+            val params = view.layoutParams as WindowManager.LayoutParams
+            params.width = width
+            windowManager.updateViewLayout(view, params)
+            saveState()
+        }
     }
 
     fun moveSelectedLine(deltaX: Int) {
         val id = selectedLineId ?: return
         val view = activeLines[id] ?: return
         val config = lineConfigs[id] ?: return
-
-        val params = view.layoutParams as WindowManager.LayoutParams
         config.x += deltaX
+        val params = view.layoutParams as WindowManager.LayoutParams
         params.x = config.x
         windowManager.updateViewLayout(view, params)
         saveState()
     }
 
+    // --- THIS WAS THE MISSING FUNCTION ---
     fun resetSelectedLine() {
         val id = selectedLineId ?: return
         val view = activeLines[id] ?: return
@@ -190,17 +166,17 @@ class OverlayService : AccessibilityService() {
         windowManager.updateViewLayout(view, params)
         saveState()
     }
+    // ------------------------------------
 
     // --- Private ---
 
     private fun getScreenHeight(): Int {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val metrics = windowManager.maximumWindowMetrics
-            metrics.bounds.height()
+            windowManager.maximumWindowMetrics.bounds.height()
         } else {
-            val display = windowManager.defaultDisplay
             val metrics = android.util.DisplayMetrics()
-            display.getRealMetrics(metrics)
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(metrics)
             metrics.heightPixels
         }
     }
@@ -208,30 +184,32 @@ class OverlayService : AccessibilityService() {
     private fun createLineView(id: String, config: LineConfig) {
         try {
             val lineView = View(this)
-            lineView.setBackgroundColor(Color.BLACK)
+            lineView.setBackgroundColor(Color.BLACK) 
 
             val screenHeight = getScreenHeight() + 200
-
-            val params = WindowManager.LayoutParams(
+          val params = WindowManager.LayoutParams(
                 config.width,
                 screenHeight,
+                // Ensure this is ACCESSIBILITY_OVERLAY (Highest possible for 3rd party)
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                
+                // --- UPDATED FLAGS ---
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                        WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                        WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR or // <--- ADD THIS
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS,
+                
                 PixelFormat.OPAQUE
             )
-
+            
+        // Force the window to be "Text" type internally (sometimes helps with Z-ordering on older Androids)
+        // params.setTitle("AmoledFixOverlay")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
-
-            params.alpha = 1.0f
-            params.dimAmount = 0.0f
-
             params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             params.x = config.x
             params.y = -100
@@ -243,38 +221,47 @@ class OverlayService : AccessibilityService() {
         }
     }
 
-    private fun removeAllViews() {
-        removeAllLinesInternal() // Don't save empty state on destroy, just clear view
+    private fun refreshAllLineLayouts() {
+        val newHeight = getScreenHeight() + 200
+        activeLines.forEach { (_, view) ->
+            val params = view.layoutParams as WindowManager.LayoutParams
+            if (params.height != newHeight) {
+                params.height = newHeight
+                windowManager.updateViewLayout(view, params)
+            }
+        }
     }
 
-    // --- Persistence ---
+    private fun removeAllViews() {
+        activeLines.values.forEach {
+            try { windowManager.removeView(it) } catch (e: Exception) { }
+        }
+        activeLines.clear()
+    }
 
     private fun saveState() {
         val prefs = getSharedPreferences("overlay_prefs", MODE_PRIVATE)
-        val editor = prefs.edit()
-        editor.clear()
-        val ids = lineConfigs.keys
-        editor.putStringSet("line_ids", ids)
-        ids.forEach { id ->
-            val config = lineConfigs[id]!!
-            editor.putInt("line_${id}_x", config.x)
-            editor.putInt("line_${id}_width", config.width)
-            editor.putBoolean("line_${id}_visible", config.visible)
+        prefs.edit().apply {
+            clear()
+            putStringSet("line_ids", lineConfigs.keys)
+            lineConfigs.forEach { (id, config) ->
+                putInt("line_${id}_x", config.x)
+                putInt("line_${id}_width", config.width)
+                putBoolean("line_${id}_visible", config.visible)
+            }
+            apply()
         }
-        editor.apply()
     }
 
     private fun restoreState() {
         val prefs = getSharedPreferences("overlay_prefs", MODE_PRIVATE)
-        val ids = prefs.getStringSet("line_ids", null) ?: return
+        val ids = prefs.getStringSet("line_ids", emptySet()) ?: return
         ids.forEach { id ->
             val x = prefs.getInt("line_${id}_x", 0)
             val width = prefs.getInt("line_${id}_width", 5)
             val visible = prefs.getBoolean("line_${id}_visible", true)
             addLineInternal(id, x, width, visible)
         }
-        if (activeLines.isNotEmpty()) {
-            selectedLineId = activeLines.keys.last()
-        }
+        if (activeLines.isNotEmpty()) selectedLineId = activeLines.keys.last()
     }
 }
